@@ -59,8 +59,8 @@ type KeyValuePair struct {
 	Value
 }
 
-// KVStore is a store interface to manipulate key/values.
-type KVStore struct {
+// CRKVStore is a cockroachdb store to manipulate key/values.
+type CRKVStore struct {
 	globalIsolation string
 
 	database string
@@ -70,8 +70,8 @@ type KVStore struct {
 
 // NewKVStore returns a new KVStore connecting to url,
 // default isolation level is serializable.
-func NewKVStore(url string, options ...Option) *KVStore {
-	kv := &KVStore{
+func NewKVStore(url string, options ...Option) *CRKVStore {
+	kv := &CRKVStore{
 		globalIsolation: "SERIALIZABLE",
 		table:           "kvt",
 	}
@@ -83,24 +83,24 @@ func NewKVStore(url string, options ...Option) *KVStore {
 }
 
 // Option is a function to set KVStore option.
-type Option func(kv *KVStore)
+type Option func(kv *CRKVStore)
 
 // SetMaxConns sets connection pool size.
 func SetMaxConns(n int) Option {
-	return func(kv *KVStore) {
+	return func(kv *CRKVStore) {
 		kv.DB.SetMaxOpenConns(n)
 	}
 }
 
 // SetIsolationLevel sets default isolation level.
 func SetIsolationLevel(isolationLeve string) Option {
-	return func(kv *KVStore) {
+	return func(kv *CRKVStore) {
 		kv.globalIsolation = isolationLeve
 	}
 }
 
 // Connect connects to url.
-func (kv *KVStore) Connect(url string) {
+func (kv *CRKVStore) Connect(url string) {
 	db, err := sql.Open("postgres", url)
 	if err != nil {
 		log.Fatal(err)
@@ -115,12 +115,12 @@ func (kv *KVStore) Connect(url string) {
 }
 
 // Close closes database connections.
-func (kv *KVStore) Close() error {
+func (kv *CRKVStore) Close() error {
 	return kv.DB.Close()
 }
 
 // CreateDatabase creates a new database.
-func (kv *KVStore) CreateDatabase(database string) error {
+func (kv *CRKVStore) CreateDatabase(database string) error {
 	if _, err := kv.DB.Exec("CREATE DATABASE IF NOT EXISTS " + database); err != nil {
 		return err
 	}
@@ -139,7 +139,7 @@ func (kv *KVStore) CreateDatabase(database string) error {
 }
 
 // Put sets a value for a key.
-func (kv *KVStore) Put(ctx context.Context, key interface{}, value interface{}) error {
+func (kv *CRKVStore) Put(ctx context.Context, key interface{}, value interface{}) error {
 	kb, vb := []byte{}, []byte{}
 	kb, err := i2Bytes(key)
 	if err != nil {
@@ -159,7 +159,7 @@ func (kv *KVStore) Put(ctx context.Context, key interface{}, value interface{}) 
 }
 
 // Del deletes a value for a key.
-func (kv *KVStore) Del(ctx context.Context, key interface{}) error {
+func (kv *CRKVStore) Del(ctx context.Context, key interface{}) error {
 	kb, err := i2Bytes(key)
 	if err != nil {
 		return err
@@ -174,11 +174,15 @@ func (kv *KVStore) Del(ctx context.Context, key interface{}) error {
 }
 
 // Get retrieves the value for a key.
-func (kv *KVStore) Get(ctx context.Context, key interface{}) (Value, error) {
+func (kv *CRKVStore) Get(ctx context.Context, key interface{}) (Value, error) {
+	kb, err := i2Bytes(key)
+	if err != nil {
+		return Value{}, nil
+	}
 	v := []byte{}
-	err := kv.QueryRowContext(ctx, "SELECT value FROM "+
+	err = kv.QueryRowContext(ctx, "SELECT value FROM "+
 		fmt.Sprintf("%s.%s", kv.database, kv.table)+
-		" WHERE key = $1", key).Scan(&v)
+		" WHERE key = $1", kb).Scan(&v)
 	if err != nil {
 		return Value{}, err
 	}
@@ -189,7 +193,7 @@ func (kv *KVStore) Get(ctx context.Context, key interface{}) (Value, error) {
 
 // Scan retrieves the key/value pairs between begin
 // (inclusive) and end (exclusive) in ascending order.
-func (kv *KVStore) Scan(ctx context.Context, begin, end interface{}, max int64) ([]KeyValuePair, error) {
+func (kv *CRKVStore) Scan(ctx context.Context, begin, end interface{}, max int64) ([]KeyValuePair, error) {
 	bb, err := i2Bytes(begin)
 	if err != nil {
 		return nil, nil
@@ -229,7 +233,7 @@ func (kv *KVStore) Scan(ctx context.Context, begin, end interface{}, max int64) 
 //
 // NOTE: the supplied exec closure should not have external side
 // effects beyond changes to the database.
-func (kv *KVStore) Txn(ctx context.Context, fn func(ctx context.Context, txn *Txn) error) (err error) {
+func (kv *CRKVStore) Txn(ctx context.Context, fn func(ctx context.Context, txn Txn) error) (err error) {
 	tx := new(sql.Tx)
 	tx, err = kv.BeginTx(ctx, nil)
 	if err != nil {
@@ -251,7 +255,7 @@ func (kv *KVStore) Txn(ctx context.Context, fn func(ctx context.Context, txn *Tx
 
 	for {
 		released := false
-		err = fn(ctx, &Txn{
+		err = fn(ctx, &CRTxn{
 			database: kv.database,
 			tx:       tx,
 		})

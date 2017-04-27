@@ -5,14 +5,14 @@ import (
 	"database/sql"
 )
 
-// Txn is an in-progress distributed database transaction.
-type Txn struct {
+// CRTxn is an in-progress distributed database transaction.
+type CRTxn struct {
 	database string
 	tx       *sql.Tx
 }
 
 // Del deletes key.
-func (txn *Txn) Del(ctx, key interface{}) error {
+func (txn *CRTxn) Del(ctx context.Context, key interface{}) error {
 	kb, err := i2Bytes(key)
 	if err != nil {
 		return err
@@ -25,7 +25,7 @@ func (txn *Txn) Del(ctx, key interface{}) error {
 }
 
 // Get retrives a key.
-func (txn *Txn) Get(ctx context.Context, key interface{}) (Value, error) {
+func (txn *CRTxn) Get(ctx context.Context, key interface{}) (Value, error) {
 	v := []byte{}
 	err := txn.tx.QueryRowContext(ctx, "SELECT value FROM "+txn.database+".kvt WHERE key = $1", key).Scan(&v)
 	if err != nil {
@@ -37,7 +37,7 @@ func (txn *Txn) Get(ctx context.Context, key interface{}) (Value, error) {
 }
 
 // Put sets a key.
-func (txn *Txn) Put(ctx context.Context, key interface{}, value interface{}) error {
+func (txn *CRTxn) Put(ctx context.Context, key interface{}, value interface{}) error {
 	kb, vb := []byte{}, []byte{}
 	kb, err := i2Bytes(key)
 	if err != nil {
